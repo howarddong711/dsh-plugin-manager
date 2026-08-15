@@ -47,16 +47,7 @@ The default registry is cached at `$DSH_HOME/plugin-manager/registry.json`. When
 
 Set `registryUrl: false` to disable remote registry loading. A registry file may be an array, `{ "plugins": [] }`, or the marketplace's `{ "repos": [] }` format.
 
-## Development
-
-```sh
-npm install
-npm test
-npm start
-npm pack --dry-run
-```
-
-`npm start` is a package smoke command. DSH itself supplies the host server and browser runtime when the plugin is installed.
+## API
 
 The manager's host API is available under `/api/dsh-plugin-manager`:
 

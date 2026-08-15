@@ -47,16 +47,7 @@ dsh plugin --profile web add ./dsh-plugin-manager
 
 设置 `registryUrl: false` 可以禁用远程 registry。registry 文件支持数组、`{ "plugins": [] }`，以及 Marketplace 使用的 `{ "repos": [] }` 格式。
 
-## 开发
-
-```sh
-npm install
-npm test
-npm start
-npm pack --dry-run
-```
-
-`npm start` 是包级 smoke command。安装到 DSH 后，宿主服务器和浏览器运行时由 DSH 提供。
+## 管理接口
 
 管理器的宿主 API 位于 `/api/dsh-plugin-manager`：
 
