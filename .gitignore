@@ -1,0 +1,8 @@
+node_modules/
+coverage/
+.nyc_output/
+npm-debug.log*
+*.tgz
+.DS_Store
+.env
+.env.*
