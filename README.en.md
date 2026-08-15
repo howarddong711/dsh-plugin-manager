@@ -24,7 +24,7 @@ From a DSH installation with the `web` profile:
 dsh plugin --profile web add github:howarddong711/dsh-plugin-manager
 ```
 
-Restart DSH after installation and open Settings → Plugin Manager.
+Restart DSH after installation and open Settings → Plugins → Plugin management or Plugin marketplace.
 
 For a local checkout:
 

@@ -24,7 +24,7 @@ DSH Plugin Manager 把社区插件的发现、安装和生命周期管理集中�
 dsh plugin --profile web add github:howarddong711/dsh-plugin-manager
 ```
 
-安装后重启 DSH，然后打开“设置 → Plugin Manager”。
+安装后重启 DSH，然后打开“设置 → 插件”，在其中选择“插件管理”或“插件市场”。
 
 从本地源码安装：
 

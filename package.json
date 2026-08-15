@@ -31,6 +31,7 @@
     "client": {
       "platform": "web",
       "inject": [
+        "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-client-ui-settings"
       ],
@@ -42,6 +43,7 @@
     "url": "https://github.com/howarddong711/dsh-plugin-manager.git"
   },
   "peerDependencies": {
+    "@deepseek-ai/dsh-client-locale": ">=0.0.1-rc.1",
     "@deepseek-ai/dsh-client-runtime": ">=0.0.1-rc.1",
     "@deepseek-ai/dsh-client-ui-settings": ">=0.0.1-rc.1",
     "@deepseek-ai/dsh-client-ui-slots": ">=0.0.1-rc.1",

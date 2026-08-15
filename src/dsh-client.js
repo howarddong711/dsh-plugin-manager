@@ -1,48 +1,119 @@
 import { createElement as h, useEffect, useMemo, useState } from 'react'
 
 import { createManagerClient } from './client.js'
+import { en, zh } from './locales.js'
 
-export const inject = ['slots']
+export const inject = ['slots', 'locale']
 
-const sectionLabel = 'Plugin Manager'
+const LOCALE_NAMESPACE = 'dsh-plugin-manager'
+const MARKETPLACE_MODE = 'marketplace'
+const MANAGER_MODE = 'manager'
 
 function confirmAction(message) {
   return typeof globalThis.confirm !== 'function' || globalThis.confirm(message)
 }
 
-function button(label, onClick, disabled = false, key) {
-  return h('button', { key, type: 'button', onClick, disabled }, label)
+function button(label, onClick, disabled = false, key, extra = {}) {
+  const style = {
+    border: '1px solid var(--dsw-alias-border-l2, #d9d9d9)',
+    background: 'var(--dsw-alias-bg-base, #fff)',
+    color: 'var(--dsw-alias-label-primary, inherit)',
+    borderRadius: '8px',
+    padding: '6px 10px',
+    cursor: disabled ? 'default' : 'pointer',
+    ...extra.style
+  }
+  return h('button', {
+    key,
+    type: 'button',
+    onClick,
+    disabled,
+    ...extra,
+    style
+  }, label)
 }
 
-function pluginCard(plugin, installed, busy, onAction) {
-  const current = installed?.[plugin.id]
-  const actions = []
+function kindLabel(kind, t) {
+  if (kind === 'web-client') return t('kindWebClient')
+  if (kind === 'cordis-bundle') return t('kindCordisBundle')
+  return t('kindUnknown')
+}
 
-  if (!current) {
-    actions.push(button('Install', () => onAction('install', plugin), busy, 'install'))
+function matchesQuery(plugin, query) {
+  const normalized = query.trim().toLowerCase()
+  if (!normalized) return true
+  return [plugin.id, plugin.name, plugin.description, plugin.repository, plugin.kind]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+    .includes(normalized)
+}
+
+function pluginCard({ plugin, current, mode, busy, onAction, t }) {
+  const actions = []
+  const name = plugin.name ?? plugin.id
+
+  if (mode === MARKETPLACE_MODE) {
+    actions.push(current
+      ? h('span', {
+        key: 'installed',
+        style: {
+          color: 'var(--dsw-alias-state-success-primary, #16a34a)',
+          padding: '6px 0'
+        }
+      }, current.enabled ? t('installed') : `${t('installed')} · ${t('disabled')}`)
+      : button(t('install'), () => onAction('install', plugin), busy, 'install'))
   } else {
-    actions.push(button(current.enabled ? 'Disable' : 'Enable', () => onAction(current.enabled ? 'disable' : 'enable', plugin), busy, 'toggle'))
-    actions.push(button('Update', () => onAction('update', plugin), busy, 'update'))
-    if (current.previousState) actions.push(button('Rollback', () => onAction('rollback', plugin), busy, 'rollback'))
-    actions.push(button('Uninstall', () => onAction('uninstall', plugin), busy, 'uninstall'))
+    actions.push(button(
+      current.enabled ? t('disable') : t('enable'),
+      () => onAction(current.enabled ? 'disable' : 'enable', plugin),
+      busy,
+      'toggle'
+    ))
+    actions.push(button(t('update'), () => onAction('update', plugin), busy, 'update'))
+    if (current.previousState) {
+      actions.push(button(t('rollback'), () => onAction('rollback', plugin), busy, 'rollback'))
+    }
+    actions.push(button(t('uninstall'), () => onAction('uninstall', plugin), busy, 'uninstall'))
   }
 
-  return h('article', { key: plugin.id, style: { borderBottom: '1px solid #ddd', padding: '12px 0' } }, [
-    h('div', { key: 'heading', style: { display: 'flex', justifyContent: 'space-between', gap: '12px' } }, [
-      h('strong', { key: 'name' }, plugin.name ?? plugin.id),
-      h('small', { key: 'kind' }, plugin.kind ?? 'unknown')
+  const metadata = current
+    ? `${current.enabled ? t('enabled') : t('disabled')} · ${current.version ?? t('versionUnknown')}`
+    : `${plugin.version ?? t('versionUnknown')} · ${plugin.repository ?? plugin.id}`
+
+  return h('article', {
+    key: plugin.id,
+    style: {
+      border: '1px solid var(--dsw-alias-border-l2, #e1e1e1)',
+      borderRadius: '12px',
+      padding: '14px',
+      display: 'grid',
+      gap: '8px',
+      minWidth: 0,
+      background: 'var(--dsw-alias-bg-base, #fff)'
+    }
+  }, [
+    h('div', {
+      key: 'heading',
+      style: { display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'baseline' }
+    }, [
+      h('strong', { key: 'name', style: { overflow: 'hidden', textOverflow: 'ellipsis' } }, name),
+      h('small', { key: 'kind', style: { flexShrink: 0 } }, kindLabel(plugin.kind, t))
     ]),
-    plugin.description ? h('p', { key: 'description' }, plugin.description) : null,
-    h('small', { key: 'meta' }, current
-      ? `${current.enabled ? 'Enabled' : 'Disabled'} · ${current.version ?? 'version unknown'}`
-      : `${plugin.version ?? 'version unknown'} · ${plugin.repository ?? plugin.id}`),
-    h('div', { key: 'actions', style: { display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap' } }, actions)
+    plugin.description ? h('p', { key: 'description', style: { margin: 0, lineHeight: 1.5 } }, plugin.description) : null,
+    h('small', { key: 'meta', style: { color: 'var(--dsw-alias-label-secondary, #777)' } }, metadata),
+    h('div', {
+      key: 'actions',
+      role: 'group',
+      'aria-label': t('ariaPluginActions'),
+      style: { display: 'flex', gap: '8px', marginTop: '4px', flexWrap: 'wrap' }
+    }, actions)
   ])
 }
 
-function ManagerSection() {
+function ManagerPanel({ mode, t }) {
   const api = useMemo(() => createManagerClient(), [])
-  const [tab, setTab] = useState('discover')
+  const [view, setView] = useState(mode === MARKETPLACE_MODE ? 'marketplace' : 'installed')
   const [query, setQuery] = useState('')
   const [plugins, setPlugins] = useState([])
   const [installed, setInstalled] = useState([])
@@ -53,25 +124,31 @@ function ManagerSection() {
 
   const installedById = useMemo(() => new Map(installed.map((plugin) => [plugin.id, plugin])), [installed])
 
-  async function refresh() {
-    const [discovered, installedResult, status] = await Promise.all([
-      api.list(query),
-      api.installed(),
-      api.status()
-    ])
-    setPlugins(discovered.plugins ?? [])
-    setInstalled(installedResult.plugins ?? [])
+  async function load() {
+    const status = await api.status()
     setProfile(status.profile ?? 'web')
+
+    if (mode === MARKETPLACE_MODE) {
+      const [discovered, installedResult] = await Promise.all([api.list(query), api.installed()])
+      setPlugins(discovered.plugins ?? [])
+      setInstalled(installedResult.plugins ?? [])
+    } else if (view === 'logs') {
+      const result = await api.operations()
+      setOperations(result.operations ?? [])
+    } else {
+      const result = await api.installed()
+      setInstalled(result.plugins ?? [])
+    }
   }
 
   useEffect(() => {
     let active = true
     setError('')
-    void refresh().catch((cause) => {
-      if (active) setError(cause.message)
+    void load().catch((cause) => {
+      if (active) setError(`${t('errorPrefix')}: ${cause.message}`)
     })
     return () => { active = false }
-  }, [query])
+  }, [mode, query, view])
 
   async function runAction(action, plugin) {
     if (busy) return
@@ -81,72 +158,136 @@ function ManagerSection() {
       if (action === 'install') {
         const { plan } = await api.plan(plugin.id)
         const warning = plan.preflight.warnings.length > 0
-          ? `\nWarnings: ${plan.preflight.warnings.join('; ')}`
+          ? `\n\n${t('warnings')}: ${plan.preflight.warnings.join('; ')}`
           : ''
-        if (!confirmAction(`Install ${plugin.name}?\n\n${plan.actions.join('\n')}${warning}`)) return
-      } else if (action === 'uninstall' && !confirmAction(`Uninstall ${plugin.name}?`)) {
+        const details = plan.actions.length > 0 ? `\n\n${plan.actions.join('\n')}` : ''
+        if (!confirmAction(`${t('confirmInstall', { name: plugin.name ?? plugin.id })}${details}${warning}`)) return
+      } else if (action === 'uninstall' && !confirmAction(t('confirmUninstall', { name: plugin.name ?? plugin.id }))) {
         return
       }
       await api.action(action, plugin.id)
-      await refresh()
-      setTab('installed')
+      await load()
     } catch (cause) {
-      setError(cause.message)
+      setError(`${t('errorPrefix')}: ${cause.message}`)
     } finally {
       setBusy(false)
     }
   }
 
-  const rows = tab === 'logs'
-    ? [h('pre', { key: 'logs', style: { whiteSpace: 'pre-wrap' } }, JSON.stringify(operations, null, 2))]
-    : (tab === 'installed' ? installed : plugins).map((plugin) => pluginCard(
+  async function refreshMarketplace() {
+    if (busy) return
+    setBusy(true)
+    setError('')
+    try {
+      await api.refresh()
+      await load()
+    } catch (cause) {
+      setError(`${t('errorPrefix')}: ${cause.message}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const source = mode === MARKETPLACE_MODE ? plugins : installed
+  const visible = source.filter((plugin) => matchesQuery(plugin, query))
+  const rows = mode === MANAGER_MODE && view === 'logs'
+    ? [h('pre', {
+      key: 'logs',
+      style: {
+        whiteSpace: 'pre-wrap',
+        margin: 0,
+        padding: '12px',
+        borderRadius: '8px',
+        background: 'var(--dsw-alias-bg-secondary, #f7f7f7)',
+        overflow: 'auto'
+      }
+    }, JSON.stringify(operations, null, 2))]
+    : visible.map((plugin) => pluginCard({
       plugin,
-      installedById.get(plugin.id),
+      current: installedById.get(plugin.id),
+      mode,
       busy,
-      runAction
-    ))
+      onAction: runAction,
+      t
+    }))
 
-  useEffect(() => {
-    if (tab !== 'logs') return undefined
-    let active = true
-    void api.operations().then((result) => {
-      if (active) setOperations(result.operations ?? [])
-    }).catch((cause) => {
-      if (active) setError(cause.message)
-    })
-    return () => { active = false }
-  }, [tab])
-
-  return h('div', { style: { display: 'grid', gap: '12px' } }, [
-    h('div', { key: 'header', style: { display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center' } }, [
-      h('div', { key: 'title' }, [h('strong', { key: 'name' }, sectionLabel), h('small', { key: 'profile', style: { display: 'block' } }, `Profile: ${profile}`)]),
-      button('Refresh', () => {
-        void api.refresh().then(refresh).catch((cause) => setError(cause.message))
-      }, busy, 'refresh')
+  return h('div', { style: { display: 'grid', gap: '14px' } }, [
+    h('div', {
+      key: 'header',
+      style: { display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start' }
+    }, [
+      h('div', { key: 'title' }, [
+        h('strong', { key: 'name', style: { display: 'block', fontSize: '16px' } }, t(mode === MARKETPLACE_MODE ? 'marketplaceTitle' : 'managerTitle')),
+        h('small', { key: 'intro', style: { display: 'block', marginTop: '4px' } }, t(mode === MARKETPLACE_MODE ? 'marketplaceIntro' : 'managerIntro')),
+        h('small', { key: 'profile', style: { display: 'block', marginTop: '4px' } }, t('profile', { profile }))
+      ]),
+      button(mode === MARKETPLACE_MODE ? t('refreshMarket') : t('refresh'),
+        mode === MARKETPLACE_MODE ? refreshMarketplace : () => { void load().catch((cause) => setError(`${t('errorPrefix')}: ${cause.message}`)) },
+        busy,
+        'refresh')
     ]),
-    h('nav', { key: 'tabs', style: { display: 'flex', gap: '8px' } }, [
-      button('Discover', () => setTab('discover'), busy, 'discover'),
-      button('Installed', () => setTab('installed'), busy, 'installed'),
-      button('Logs', () => setTab('logs'), busy, 'logs')
-    ]),
-    tab !== 'logs' ? h('input', {
+    mode === MANAGER_MODE ? h('nav', {
+      key: 'views',
+      role: 'tablist',
+      'aria-label': t('ariaViews'),
+      style: { display: 'flex', gap: '8px' }
+    }, [
+      button(t('installedView'), () => setView('installed'), busy, 'installed-view', {
+        role: 'tab',
+        'aria-selected': view === 'installed'
+      }),
+      button(t('logsView'), () => setView('logs'), busy, 'logs-view', {
+        role: 'tab',
+        'aria-selected': view === 'logs'
+      })
+    ]) : null,
+    h('input', {
       key: 'search',
       value: query,
-      placeholder: 'Search plugins',
-      onChange: (event) => setQuery(event.target.value)
-    }) : null,
-    error ? h('p', { key: 'error', role: 'alert', style: { color: '#b42318' } }, error) : null,
-    h('div', { key: 'list' }, rows.length > 0 ? rows : h('p', { key: 'empty' }, 'No plugins found.'))
+      placeholder: t(mode === MARKETPLACE_MODE ? 'searchMarketplace' : 'searchInstalled'),
+      'aria-label': t(mode === MARKETPLACE_MODE ? 'searchMarketplace' : 'searchInstalled'),
+      onChange: (event) => setQuery(event.target.value),
+      style: {
+        width: '100%',
+        boxSizing: 'border-box',
+        border: '1px solid var(--dsw-alias-border-l2, #d9d9d9)',
+        borderRadius: '10px',
+        padding: '10px 12px',
+        background: 'var(--dsw-alias-bg-base, #fff)',
+        color: 'var(--dsw-alias-label-primary, inherit)'
+      }
+    }),
+    error ? h('p', { key: 'error', role: 'alert', style: { color: 'var(--dsw-alias-state-error-primary, #b42318)', margin: 0 } }, error) : null,
+    h('div', {
+      key: 'list',
+      style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px' }
+    }, rows.length > 0
+      ? rows
+      : h('p', { key: 'empty' }, mode === MANAGER_MODE ? t('noInstalled') : t('noResults')))
   ])
 }
 
 export function apply(ctx) {
-  ctx.slots.inject('settings.section', () => ctx.slots.register({
-    name: 'settings.section',
-    id: 'dsh-plugin-manager',
-    order: 80,
-    label: sectionLabel
-  }, ManagerSection))
-}
+  ctx.effect(
+    () => ctx.locale.register(LOCALE_NAMESPACE, { zh, en }),
+    'dsh-plugin-manager: locale dictionaries'
+  )
 
-export { ManagerSection }
+  const t = ctx.locale.bind(LOCALE_NAMESPACE)
+  ctx.slots.inject('settings.plugins.tab', function* () {
+    yield ctx.slots.register({
+      name: 'settings.plugins.tab',
+      id: 'dsh-plugin-manager',
+      order: 20,
+      label: () => t('managerTab'),
+      locale: LOCALE_NAMESPACE
+    }, (props) => h(ManagerPanel, { ...props, mode: MANAGER_MODE }))
+    yield ctx.slots.register({
+      name: 'settings.plugins.tab',
+      id: 'dsh-plugin-marketplace',
+      order: 30,
+      label: () => t('marketplaceTab'),
+      locale: LOCALE_NAMESPACE
+    }, (props) => h(ManagerPanel, { ...props, mode: MARKETPLACE_MODE }))
+  })
+}
