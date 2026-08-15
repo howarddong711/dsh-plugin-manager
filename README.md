@@ -7,6 +7,7 @@
 DSH Plugin Manager 把社区插件的发现、安装和生命周期管理集中到 DSH Web UI 中：
 
 - 浏览社区插件市场；
+- 查看 GitHub 仓库链接和 Star 数，并按 Star 数排序；
 - 安装前检查 DSH 版本、平台和权限；
 - 从 GitHub 或 npm 安装插件；
 - 按 DSH profile 启用或禁用插件；

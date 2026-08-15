@@ -58,6 +58,20 @@ test('registry accepts the community marketplace repos format', async () => {
   assert.equal(registry.entries[0].stars, 7)
 })
 
+test('registry discovery sorts plugins by GitHub stars', () => {
+  const registry = new PluginRegistry([
+    { full_name: 'example/unknown', name: 'Unknown', stargazers_count: null },
+    { full_name: 'example/popular', name: 'Popular', stargazers_count: 42 },
+    { full_name: 'example/smaller', name: 'Smaller', stargazers_count: 7 }
+  ])
+
+  assert.deepEqual(registry.search().map((entry) => entry.id), [
+    'example/popular',
+    'example/smaller',
+    'example/unknown'
+  ])
+})
+
 test('missing runtime registry can be disabled without a network request', async () => {
   const rootDir = await temporaryRoot()
   const profileManager = new ProfileManager({ rootDir })

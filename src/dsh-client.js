@@ -42,16 +42,58 @@ function kindLabel(kind, t) {
 function matchesQuery(plugin, query) {
   const normalized = query.trim().toLowerCase()
   if (!normalized) return true
-  return [plugin.id, plugin.name, plugin.description, plugin.repository, plugin.kind]
+  return [plugin.id, plugin.name, plugin.description, plugin.repository, plugin.homepage, plugin.kind]
     .filter(Boolean)
     .join(' ')
     .toLowerCase()
     .includes(normalized)
 }
 
+function githubUrl(plugin) {
+  for (const value of [plugin.homepage, plugin.repository]) {
+    if (typeof value !== 'string' || !value.trim()) continue
+    const normalized = value.trim().replace(/^github:/i, '')
+    const candidate = /^https?:\/\//i.test(normalized)
+      ? normalized
+      : `https://github.com/${normalized}`
+    try {
+      const url = new URL(candidate)
+      if (url.hostname.toLowerCase() !== 'github.com') continue
+      const path = url.pathname.replace(/\.git$/, '').replace(/\/$/, '')
+      if (!/^\/[^/]+\/[^/]+/.test(path)) continue
+      return `https://github.com${path}`
+    } catch {
+      continue
+    }
+  }
+  return null
+}
+
+function starCount(plugin) {
+  if (plugin.stars === null || plugin.stars === undefined || plugin.stars === '') return null
+  const count = Number(plugin.stars)
+  return Number.isFinite(count) ? count : null
+}
+
+function formatStars(plugin) {
+  const count = starCount(plugin)
+  return count === null ? null : new Intl.NumberFormat().format(count)
+}
+
+function compareByStars(left, right) {
+  const leftStars = starCount(left)
+  const rightStars = starCount(right)
+  if (leftStars === null && rightStars !== null) return 1
+  if (leftStars !== null && rightStars === null) return -1
+  if (leftStars !== rightStars) return (rightStars ?? -1) - (leftStars ?? -1)
+  return String(left.name ?? left.id).localeCompare(String(right.name ?? right.id))
+}
+
 function pluginCard({ plugin, current, mode, busy, onAction, t }) {
   const actions = []
   const name = plugin.name ?? plugin.id
+  const repositoryUrl = githubUrl(plugin)
+  const stars = formatStars(plugin)
 
   if (mode === MARKETPLACE_MODE) {
     actions.push(current
@@ -101,7 +143,27 @@ function pluginCard({ plugin, current, mode, busy, onAction, t }) {
       h('small', { key: 'kind', style: { flexShrink: 0 } }, kindLabel(plugin.kind, t))
     ]),
     plugin.description ? h('p', { key: 'description', style: { margin: 0, lineHeight: 1.5 } }, plugin.description) : null,
-    h('small', { key: 'meta', style: { color: 'var(--dsw-alias-label-secondary, #777)' } }, metadata),
+    h('div', {
+      key: 'meta',
+      style: {
+        display: 'flex',
+        gap: '12px',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        color: 'var(--dsw-alias-label-secondary, #777)'
+      }
+    }, [
+      repositoryUrl
+        ? h('a', {
+          key: 'github',
+          href: repositoryUrl,
+          target: '_blank',
+          rel: 'noreferrer',
+          style: { color: 'var(--dsw-alias-label-link, #2563eb)' }
+        }, t('github'))
+        : h('span', { key: 'repository' }, plugin.repository ?? plugin.id),
+      h('span', { key: 'stars' }, stars === null ? t('starsUnknown') : t('stars', { count: stars }))
+    ]),
     h('div', {
       key: 'actions',
       role: 'group',
@@ -189,7 +251,9 @@ function ManagerPanel({ mode, t }) {
   }
 
   const source = mode === MARKETPLACE_MODE ? plugins : installed
-  const visible = source.filter((plugin) => matchesQuery(plugin, query))
+  const visible = source
+    .filter((plugin) => matchesQuery(plugin, query))
+    .sort(mode === MARKETPLACE_MODE ? compareByStars : () => 0)
   const rows = mode === MANAGER_MODE && view === 'logs'
     ? [h('pre', {
       key: 'logs',

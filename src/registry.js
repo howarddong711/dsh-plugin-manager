@@ -36,6 +36,18 @@ function normalizeEntry(entry) {
   }
 }
 
+function starCountOf(entry) {
+  if (entry?.stars === null || entry?.stars === undefined || entry.stars === '') return -1
+  const count = Number(entry.stars)
+  return Number.isFinite(count) ? count : -1
+}
+
+function compareByStars(left, right) {
+  const difference = starCountOf(right) - starCountOf(left)
+  if (difference !== 0) return difference
+  return String(left.name).localeCompare(String(right.name))
+}
+
 export class PluginRegistry {
   constructor(entries = []) {
     this.entries = entries.map(normalizeEntry)
@@ -67,7 +79,7 @@ export class PluginRegistry {
       ].join(' ').toLowerCase()
 
       return haystack.includes(normalizedQuery)
-    })
+    }).sort(compareByStars)
   }
 }
 

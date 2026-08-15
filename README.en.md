@@ -7,6 +7,7 @@ Public plugin management for [DeepSeek Harness](https://www.deepseek.com/harness
 DSH Plugin Manager adds a settings page and a safe lifecycle for community plugins:
 
 - browse the community registry;
+- open GitHub repository links and see Star counts, sorted by Stars;
 - preview compatibility and requested permissions;
 - install from GitHub or npm;
 - enable or disable plugins per DSH profile;
