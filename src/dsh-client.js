@@ -142,7 +142,7 @@ function ManagerSection() {
 
 export function apply(ctx) {
   ctx.slots.inject('settings.section', () => ctx.slots.register({
-    name: 'dsh-plugin-manager/settings',
+    name: 'settings.section',
     id: 'dsh-plugin-manager',
     order: 80,
     label: sectionLabel
