@@ -7,12 +7,13 @@
   "exports": {
     ".": "./src/dsh-plugin.js",
     "./core": "./src/index.js",
-    "./client": "./src/dsh-client.js",
+    "./client": "./lib/client.js",
     "./client-core": "./src/client.js",
     "./package.json": "./package.json"
   },
   "files": [
     "src",
+    "lib",
     "cordis.patch.yml",
     "README.md",
     "README.en.md",
@@ -20,7 +21,8 @@
   ],
   "scripts": {
     "start": "node src/cli.js",
-    "test": "node --test"
+    "test": "node --test",
+    "bundle": "tsdown"
   },
   "dsh": {
     "bundle": {
@@ -46,5 +48,8 @@
     "@deepseek-ai/cordis": ">=4.0.1-rc.1",
     "react": "^18.2.0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "tsdown": "^0.22.2"
+  }
 }
