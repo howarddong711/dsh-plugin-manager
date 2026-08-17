@@ -45,7 +45,14 @@ export function createManagerApi({ manager, basePath = MANAGER_API_PREFIX, refre
       }
 
       if (request.method === 'GET' && path === routePath(basePath, '/operations')) {
-        return json({ operations: await manager.operationLog.list({ limit: Number(url.searchParams.get('limit') ?? 100) }) })
+        return json({ operations: await manager.listOperations({ limit: Number(url.searchParams.get('limit') ?? 100) }) })
+      }
+
+      const operationPrefix = routePath(basePath, '/operations/')
+      if (request.method === 'GET' && path.startsWith(operationPrefix)) {
+        const operationId = decodeURIComponent(path.slice(operationPrefix.length))
+        const operation = await manager.getOperation(operationId)
+        return operation ? json({ operation }) : json({ error: 'Operation not found' }, 404)
       }
 
       if (request.method === 'GET' && path === routePath(basePath, '/status')) {
@@ -68,8 +75,8 @@ export function createManagerApi({ manager, basePath = MANAGER_API_PREFIX, refre
         const body = await readBody(request)
         const method = actionMethod(body.action)
         if (!method || typeof body.id !== 'string') return json({ error: 'action and id are required' }, 400)
-        const result = await manager[method](body.id, body.options ?? {})
-        return json({ ok: true, action: body.action, result })
+        const operation = manager.startOperation(method, body.id, body.options ?? {})
+        return json({ ok: true, action: body.action, operation }, 202)
       }
 
       return json({ error: 'Not found' }, 404)

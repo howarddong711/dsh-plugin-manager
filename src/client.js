@@ -33,6 +33,7 @@ export function createManagerClient({ fetchImpl = globalThis.fetch, basePath = '
     plan: (id) => request(`/plan?id=${encodeURIComponent(id)}`),
     refresh: () => request('/refresh', { method: 'POST', body: '{}' }),
     operations: () => request('/operations'),
+    operation: (id) => request(`/operations/${encodeURIComponent(id)}`),
     action: (action, id, options = {}) => request('/action', {
       method: 'POST',
       body: JSON.stringify({ action, id, options })

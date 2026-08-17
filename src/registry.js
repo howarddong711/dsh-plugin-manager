@@ -5,6 +5,7 @@ function normalizeEntry(entry) {
   if (!id || typeof id !== 'string') throw new TypeError('Registry entries require an id')
 
   const category = entry.category ?? entry.marketplaceCategory
+  const packageName = entry.packageName ?? entry.pkg_name ?? entry.npm
   const inferredKind = category === 'web-ui'
     ? 'web-client'
     : category === 'skill'
@@ -17,7 +18,7 @@ function normalizeEntry(entry) {
     id,
     name: entry.name ?? id.split('/').at(-1),
     repository: entry.repository ?? entry.full_name ?? id,
-    packageName: entry.packageName ?? entry.pkg_name,
+    packageName,
     kind: entry.kind ?? entry.type ?? inferredKind,
     description: entry.description ?? '',
     version: entry.version ?? entry.latestVersion,
@@ -32,7 +33,9 @@ function normalizeEntry(entry) {
     commit: entry.commit,
     installScript: entry.installScript,
     requiresBuild: entry.requiresBuild,
-    source: entry.source ?? 'registry'
+    // A registry npm mapping is the preferred install artifact. GitHub stays
+    // the fallback for repositories without a published package.
+    source: entry.source ?? (packageName ? 'npm' : 'github')
   }
 }
 

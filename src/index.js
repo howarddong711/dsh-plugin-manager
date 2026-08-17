@@ -1,6 +1,7 @@
 export { PluginRegistry } from './registry.js'
 export { preflightPlugin } from './compatibility.js'
 export { OperationLog } from './operation-log.js'
+export { OperationTasks } from './operation-tasks.js'
 export { DshPluginManager } from './manager.js'
 export { ArtifactInstaller } from './artifact-installer.js'
 export {

@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer, request as httpRequest } from 'node:http'
@@ -56,6 +56,7 @@ test('registry accepts the community marketplace repos format', async () => {
   assert.equal(registry.entries[0].kind, 'web-client')
   assert.equal(registry.entries[0].packageName, '@example/web-ui')
   assert.equal(registry.entries[0].stars, 7)
+  assert.equal(registry.entries[0].source, 'npm')
 })
 
 test('registry discovery sorts plugins by GitHub stars', () => {
@@ -256,6 +257,21 @@ test('artifact installer deploys a local package without executing scripts', asy
   assert.equal(result.version, '1.2.0')
   assert.equal(runnerCalls, 0)
   assert.equal((await readFile(join(profileDir, 'node_modules', '@example', 'sidebar', 'index.js'), 'utf8')).trim(), 'export const ok = true')
+  assert.deepEqual(await readdir(join(rootDir, 'staging')), [])
+})
+
+test('failed artifact staging cleans temporary files and preserves the source error', async () => {
+  const rootDir = await temporaryRoot()
+  const installer = new ArtifactInstaller({
+    rootDir,
+    runner: async () => { throw new Error('simulated clone failure') }
+  })
+
+  await assert.rejects(
+    () => installer.install({ id: 'example/sidebar', packageName: '@example/sidebar', source: 'github', repository: 'example/sidebar' }, { profileDir: join(rootDir, 'profiles', 'web') }),
+    /simulated clone failure/
+  )
+  assert.deepEqual(await readdir(join(rootDir, 'staging')), [])
 })
 
 test('artifact installer replaces a package and restores the previous version', async () => {
@@ -358,10 +374,57 @@ test('HTTP API exposes discovery, installed state, operations, and actions', asy
     method: 'POST',
     body: JSON.stringify({ action: 'install', id: plugin.id })
   }))
-  assert.equal(actionResponse.status, 200)
+  assert.equal(actionResponse.status, 202)
+  const operation = (await actionResponse.json()).operation
+  assert.equal(operation.status, 'queued')
+  assert.equal(operation.progress, 0)
+  const completed = await manager.operationTasks.wait(operation.operationId)
+  assert.equal(completed.status, 'completed')
+  assert.equal(completed.progress, 100)
+  assert.ok(completed.logs.some((entry) => entry.line.includes('安装并启用完成')))
 
   const installedResponse = await handle(new Request('http://localhost/api/dsh-plugin-manager/installed'))
-  assert.equal((await installedResponse.json()).plugins[0].id, plugin.id)
+  const installed = (await installedResponse.json()).plugins[0]
+  assert.equal(installed.id, plugin.id)
+  assert.equal(installed.enabled, true)
+
+  const operationResponse = await handle(new Request(`http://localhost/api/dsh-plugin-manager/operations/${operation.operationId}`))
+  assert.equal(operationResponse.status, 200)
+  assert.equal((await operationResponse.json()).operation.status, 'completed')
+})
+
+test('queued local plugin operations complete the full lifecycle', async () => {
+  const rootDir = await temporaryRoot()
+  const sourceV1 = await temporaryRoot()
+  const sourceV2 = await temporaryRoot()
+  const registry = new PluginRegistry([{ ...plugin, source: 'local', localPath: sourceV1, version: '1.0.0' }])
+  const profileManager = new ProfileManager({ rootDir, profile: 'web' })
+  const installer = new ArtifactInstaller({ rootDir, runner: async () => {} })
+  const manager = new DshPluginManager({ registry, profileManager, installer, dshVersion: '0.1.0', platform: 'win32' })
+
+  await writeFile(join(sourceV1, 'package.json'), JSON.stringify({ name: '@example/sidebar', version: '1.0.0' }))
+  await writeFile(join(sourceV1, 'index.js'), 'v1')
+  await writeFile(join(sourceV2, 'package.json'), JSON.stringify({ name: '@example/sidebar', version: '2.0.0' }))
+  await writeFile(join(sourceV2, 'index.js'), 'v2')
+
+  const run = async (action) => {
+    const operation = manager.startOperation(action, plugin.id)
+    return manager.operationTasks.wait(operation.operationId)
+  }
+
+  assert.equal((await run('install')).status, 'completed')
+  assert.equal((await profileManager.list())[0].enabled, true)
+  assert.equal((await run('disable')).status, 'completed')
+  assert.equal((await profileManager.list())[0].enabled, false)
+  assert.equal((await run('enable')).status, 'completed')
+  registry.entries[0].localPath = sourceV2
+  registry.entries[0].version = '2.0.0'
+  assert.equal((await run('update')).status, 'completed')
+  assert.equal((await profileManager.list())[0].version, '2.0.0')
+  assert.equal((await run('rollback')).status, 'completed')
+  assert.equal((await profileManager.list())[0].version, '1.0.0')
+  assert.equal((await run('uninstall')).status, 'completed')
+  assert.deepEqual(await profileManager.list(), [])
 })
 
 test('DSH plugin registers a node prefix route and serves the discovery API', async () => {

@@ -4,18 +4,23 @@ Public plugin management for [DeepSeek Harness](https://www.deepseek.com/harness
 
 **中文文档：[README.md](README.md)**
 
-DSH Plugin Manager adds a settings page and a safe lifecycle for community plugins:
+DSH Plugin Manager adds an independent Plugin Center page to DSH Web without changing the native DSH Plugins page:
 
 - browse the community registry;
 - open GitHub repository links and see Star counts, sorted by Stars;
+- filter and sort by plugin type, name, version, or Stars;
+- open plugin details with version, source, package, permissions, and requirements;
 - preview compatibility and requested permissions;
 - install from GitHub or npm;
 - enable or disable plugins per DSH profile;
 - update with staging and package backups;
 - roll back failed updates and restore profile state;
-- inspect operation history.
+- watch installation stages and live logs;
+- distinguish queued, running, installed, enabled, and failed states;
+- restore the profile and package files when an installation fails.
+- clean staging files automatically after install, update, or uninstall operations.
 
-The host entry uses DSH's `webServer` route service. The browser entry uses DSH's settings slots, so the manager appears inside the existing Web UI settings shell.
+The page follows DSH's default language, theme, and active profile. Marketplace, installed plugins, and operation logs live in one independent entry.
 
 ## Install in DSH
 
@@ -25,7 +30,7 @@ From a DSH installation with the `web` profile:
 dsh plugin --profile web add github:howarddong711/dsh-plugin-manager
 ```
 
-Restart DSH after installation and open Settings → Plugins → Plugin management or Plugin marketplace.
+Restart DSH after installation and open Settings → Plugin Center.
 
 For a local checkout:
 
@@ -53,13 +58,14 @@ Set `registryUrl: false` to disable remote registry loading. A registry file may
 The manager's host API is available under `/api/dsh-plugin-manager`:
 
 ```text
-GET  /plugins?query=...
+GET  /plugins?query=...&kind=...
 GET  /installed
 GET  /status
 GET  /plan?id=owner/repository
-GET  /operations
+GET  /operations              # each task includes progress (0-100) and live logs
+GET  /operations/:operationId
 POST /refresh
-POST /action
+POST /action       # returns 202 and an operationId; the task runs in the background
 ```
 
 ## Security

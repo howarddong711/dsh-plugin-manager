@@ -1,16 +1,57 @@
 import { access, cp, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
-import { execFile as nodeExecFile } from 'node:child_process'
+import { execFile as nodeExecFile, spawn as nodeSpawn } from 'node:child_process'
 import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { randomUUID } from 'node:crypto'
 
 const execFile = promisify(nodeExecFile)
 
-async function defaultRunner(command, args, options) {
-  return execFile(command, args, {
-    ...options,
-    windowsHide: true,
-    maxBuffer: 4 * 1024 * 1024
+async function defaultRunner(command, args, options = {}) {
+  if (typeof options.onLog !== 'function') {
+    return execFile(command, args, {
+      ...options,
+      windowsHide: true,
+      maxBuffer: 4 * 1024 * 1024
+    })
+  }
+
+  return new Promise((resolvePromise, reject) => {
+    const child = nodeSpawn(command, args, {
+      cwd: options.cwd,
+      env: options.env,
+      windowsHide: true,
+      shell: false
+    })
+    const buffers = { stdout: '', stderr: '' }
+    const output = { stdout: '', stderr: '' }
+
+    const consume = (stream, chunk, flush = false) => {
+      buffers[stream] += chunk.toString()
+      const parts = buffers[stream].split(/\r?\n/)
+      buffers[stream] = flush ? '' : (parts.pop() ?? '')
+      for (const line of parts) {
+        if (!line) continue
+        output[stream] += `${line}\n`
+        options.onLog(line, stream)
+      }
+    }
+
+    child.stdout?.on('data', (chunk) => consume('stdout', chunk))
+    child.stderr?.on('data', (chunk) => consume('stderr', chunk))
+    child.once('error', reject)
+    child.once('close', (code, signal) => {
+      consume('stdout', '', true)
+      consume('stderr', '', true)
+      if (code === 0) {
+        resolvePromise(output)
+        return
+      }
+      const error = new Error(`${command} exited with code ${code ?? 'unknown'}${signal ? ` (${signal})` : ''}`)
+      error.code = code ?? signal
+      error.stdout = output.stdout
+      error.stderr = output.stderr
+      reject(error)
+    })
   })
 }
 
@@ -70,33 +111,43 @@ export class ArtifactInstaller {
     this.stagingDir = join(rootDir, 'staging')
   }
 
-  async stage(plugin) {
+  async stage(plugin, { onLog } = {}) {
     await mkdir(this.stagingDir, { recursive: true })
     const stageDir = join(this.stagingDir, `${plugin.id.replace(/[^a-z0-9_.-]+/gi, '_')}-${randomUUID()}`)
     await mkdir(stageDir, { recursive: true })
 
-    if (plugin.localPath) {
-      await cp(resolve(plugin.localPath), stageDir, { recursive: true })
-    } else if (plugin.source === 'npm') {
-      await this.#stageNpm(plugin, stageDir)
-    } else {
-      await this.#stageGit(plugin, stageDir)
-    }
+    try {
+      if (plugin.localPath) {
+        await cp(resolve(plugin.localPath), stageDir, { recursive: true })
+      } else if (plugin.source === 'npm') {
+        await this.#stageNpm(plugin, stageDir, { onLog })
+      } else {
+        await this.#stageGit(plugin, stageDir, { onLog })
+      }
 
-    const packageRoot = await findPackageRoot(stageDir, plugin.packageName)
-    if (!packageRoot) throw new Error(`No package.json found for ${plugin.id}`)
-    return { ...packageRoot, stageDir }
+      const packageRoot = await findPackageRoot(stageDir, plugin.packageName)
+      if (!packageRoot) throw new Error(`No package.json found for ${plugin.id}`)
+      return { ...packageRoot, stageDir }
+    } catch (error) {
+      await rm(stageDir, { recursive: true, force: true })
+      throw error
+    }
   }
 
-  async install(plugin, { profileDir, allowScripts = false } = {}) {
+  async install(plugin, { profileDir, allowScripts = false, onLog } = {}) {
     if (!profileDir) throw new TypeError('profileDir is required')
-    const artifact = await this.stage(plugin)
-    const packageName = safePackageName(artifact.manifest.name ?? plugin.packageName)
-    const target = join(profileDir, 'node_modules', packageName)
-    const snapshot = await this.#createPackageSnapshot(target, packageName)
-    const temporaryTarget = join(profileDir, 'node_modules', `.${packageName.replace(/[^a-z0-9_.-]+/gi, '_')}-${randomUUID()}.staging`)
+    let artifact
+    let snapshot
+    let packageName
+    let target
+    let temporaryTarget
 
     try {
+      artifact = await this.stage(plugin, { onLog })
+      packageName = safePackageName(artifact.manifest.name ?? plugin.packageName)
+      target = join(profileDir, 'node_modules', packageName)
+      snapshot = await this.#createPackageSnapshot(target, packageName)
+      temporaryTarget = join(profileDir, 'node_modules', `.${packageName.replace(/[^a-z0-9_.-]+/gi, '_')}-${randomUUID()}.staging`)
       await rm(temporaryTarget, { recursive: true, force: true })
       await mkdir(join(temporaryTarget, '..'), { recursive: true })
       await cp(artifact.directory, temporaryTarget, { recursive: true })
@@ -108,20 +159,22 @@ export class ArtifactInstaller {
           '--omit=dev',
           '--no-audit',
           '--no-fund'
-        ], { cwd: temporaryTarget })
+        ], { cwd: temporaryTarget, onLog })
       }
 
       if (allowScripts && artifact.manifest.scripts?.build) {
-        await this.runner('npm', ['run', 'build'], { cwd: temporaryTarget })
+        await this.runner('npm', ['run', 'build'], { cwd: temporaryTarget, onLog })
       }
 
       await rm(target, { recursive: true, force: true })
       await mkdir(join(target, '..'), { recursive: true })
       await rename(temporaryTarget, target)
     } catch (error) {
-      await rm(temporaryTarget, { recursive: true, force: true })
-      await this.rollback(snapshot.id)
+      if (temporaryTarget) await rm(temporaryTarget, { recursive: true, force: true })
+      if (snapshot?.id) await this.rollback(snapshot.id)
       throw error
+    } finally {
+      if (artifact?.stageDir) await rm(artifact.stageDir, { recursive: true, force: true })
     }
 
     return {
@@ -154,26 +207,26 @@ export class ArtifactInstaller {
     return { backupId, target: manifest.target, restored: manifest.present }
   }
 
-  async #stageGit(plugin, stageDir) {
+  async #stageGit(plugin, stageDir, { onLog } = {}) {
     const repository = plugin.repository?.startsWith('http')
       ? plugin.repository
       : `https://github.com/${plugin.repository ?? plugin.id}.git`
-    await this.runner('git', ['clone', '--depth', '1', repository, stageDir], { cwd: this.rootDir })
+    await this.runner('git', ['clone', '--depth', '1', repository, stageDir], { cwd: this.rootDir, onLog })
     if (plugin.commit) {
-      await this.runner('git', ['-C', stageDir, 'fetch', '--depth', '1', 'origin', plugin.commit], { cwd: this.rootDir })
-      await this.runner('git', ['-C', stageDir, 'checkout', plugin.commit], { cwd: this.rootDir })
+      await this.runner('git', ['-C', stageDir, 'fetch', '--depth', '1', 'origin', plugin.commit], { cwd: this.rootDir, onLog })
+      await this.runner('git', ['-C', stageDir, 'checkout', plugin.commit], { cwd: this.rootDir, onLog })
     }
   }
 
-  async #stageNpm(plugin, stageDir) {
+  async #stageNpm(plugin, stageDir, { onLog } = {}) {
     const packageName = safePackageName(plugin.packageName)
-    await this.runner('npm', ['pack', packageName, '--pack-destination', stageDir], { cwd: this.rootDir })
+    await this.runner('npm', ['pack', packageName, '--pack-destination', stageDir], { cwd: this.rootDir, onLog })
     const entries = await readdir(stageDir)
     const archive = entries.find((entry) => entry.endsWith('.tgz'))
     if (!archive) throw new Error(`npm pack did not produce an archive for ${packageName}`)
     const unpackDir = join(stageDir, 'unpacked')
     await mkdir(unpackDir, { recursive: true })
-    await this.runner('npm', ['install', '--ignore-scripts', '--prefix', unpackDir, join(stageDir, archive)], { cwd: this.rootDir })
+    await this.runner('npm', ['install', '--ignore-scripts', '--prefix', unpackDir, join(stageDir, archive)], { cwd: this.rootDir, onLog })
     await cp(join(unpackDir, 'node_modules', packageName), join(stageDir, 'package'), { recursive: true })
   }
 

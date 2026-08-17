@@ -4,18 +4,23 @@
 
 面向 [DeepSeek Harness](https://www.deepseek.com/harness/) 的开源插件管理器。
 
-DSH Plugin Manager 把社区插件的发现、安装和生命周期管理集中到 DSH Web UI 中：
+DSH Plugin Manager 在 DSH Web UI 中提供一个独立的“插件中心”页面，不修改 DSH 原生插件页：
 
 - 浏览社区插件市场；
 - 查看 GitHub 仓库链接和 Star 数，并按 Star 数排序；
+- 按插件类型、名称、版本或 Star 数筛选和排序；
+- 打开插件详情，查看版本、来源、包名、权限和运行要求；
 - 安装前检查 DSH 版本、平台和权限；
 - 从 GitHub 或 npm 安装插件；
 - 按 DSH profile 启用或禁用插件；
 - 更新时使用 staging 和备份；
 - 更新失败后回滚包文件与 profile 状态；
-- 查看完整操作日志。
+- 安装时实时查看任务进度和安装日志；
+- 区分排队中、安装中、已安装、已启用和失败状态；
+- 安装失败时恢复 profile 和插件文件。
+- 安装、更新或卸载完成后自动清理 staging 临时文件。
 
-宿主端使用 DSH 官方 `webServer` 路由服务，浏览器端使用 DSH 官方 settings slots，因此插件管理器会显示在现有的 Web UI 设置页中。
+页面跟随 DSH 默认语言、主题和 profile，市场、已安装插件和任务日志集中在同一个独立入口中。
 
 ## 在 DSH 中安装
 
@@ -25,7 +30,7 @@ DSH Plugin Manager 把社区插件的发现、安装和生命周期管理集中�
 dsh plugin --profile web add github:howarddong711/dsh-plugin-manager
 ```
 
-安装后重启 DSH，然后打开“设置 → 插件”，在其中选择“插件管理”或“插件市场”。
+安装后重启 DSH，然后打开“设置”中的“插件中心”。
 
 从本地源码安装：
 
@@ -53,13 +58,14 @@ dsh plugin --profile web add ./dsh-plugin-manager
 管理器的宿主 API 位于 `/api/dsh-plugin-manager`：
 
 ```text
-GET  /plugins?query=...
+GET  /plugins?query=...&kind=...
 GET  /installed
 GET  /status
 GET  /plan?id=owner/repository
-GET  /operations
+GET  /operations              # 每个任务包含 progress（0-100）和实时日志
+GET  /operations/:operationId
 POST /refresh
-POST /action
+POST /action       # 返回 202 和 operationId，任务在后台执行
 ```
 
 ## 安全提示
